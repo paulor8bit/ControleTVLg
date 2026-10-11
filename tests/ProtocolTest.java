@@ -1,0 +1,20 @@
+package com.paulinho.lg;
+import org.java_websocket.server.WebSocketServer;import org.java_websocket.WebSocket;import org.java_websocket.handshake.ClientHandshake;import org.json.*;import java.net.*;import java.util.concurrent.*;
+public class ProtocolTest {
+ static void check(boolean v,String msg){if(!v)throw new AssertionError(msg);}
+ public static void main(String[] args)throws Exception {
+ CountDownLatch started=new CountDownLatch(1),paired=new CountDownLatch(2),pointer=new CountDownLatch(1),volume=new CountDownLatch(1),text=new CountDownLatch(1),button=new CountDownLatch(1),move=new CountDownLatch(1),click=new CountDownLatch(1);java.util.concurrent.atomic.AtomicInteger registrations=new java.util.concurrent.atomic.AtomicInteger();
+ WebSocketServer server=new WebSocketServer(new InetSocketAddress("127.0.0.1",3000)){
+ public void onOpen(WebSocket c,ClientHandshake h){if(h.getResourceDescriptor().equals("/pointer"))pointer.countDown();}
+ public void onClose(WebSocket c,int code,String reason,boolean remote){}
+ public void onError(WebSocket c,Exception e){e.printStackTrace();}
+ public void onStart(){started.countDown();}
+ public void onMessage(WebSocket c,String raw){if(raw.startsWith("type:")){if(raw.equals("type:button\nname:UP\n\n"))button.countDown();if(raw.startsWith("type:move\ndx:2.0\ndy:3.0\ndown:0\n\n"))move.countDown();if(raw.equals("type:click\n\n"))click.countDown();return;}
+ JSONObject m=new JSONObject(raw);String type=m.optString("type"),uri=m.optString("uri"),id=m.optString("id");JSONObject p=m.optJSONObject("payload");
+ if(type.equals("register")){int n=registrations.incrementAndGet();if(n==2)check(p.optString("client-key").equals("saved-key"),"Saved key was not reused");check(p.getJSONObject("manifest").getJSONArray("permissions").toString().contains("CONTROL_MOUSE_AND_KEYBOARD"),"Missing pointer permission");c.send(Remote.obj("type","registered","id",id,"payload",Remote.obj("client-key","saved-key")).toString());return;}
+ JSONObject result=Remote.obj("returnValue",true);if(uri.endsWith("getPointerInputSocket"))result.put("socketPath","ws://127.0.0.1:3000/pointer");if(uri.endsWith("getVolume"))result.put("volume",12).put("mute",false);if(uri.endsWith("volumeUp"))volume.countDown();if(uri.endsWith("insertText")){check(p.optString("text").equals("Olá Paulinho"),"Text changed");text.countDown();}c.send(Remote.obj("type","response","id",id,"payload",result).toString());}
+ };
+ server.start();check(started.await(3,TimeUnit.SECONDS),"Server start");Remote remote=new Remote(new Remote.Listener(){public void status(String s){System.out.println(s);}public void paired(Tv tv){paired.countDown();}public void data(String k,JSONObject p){}});
+ try {Tv tv=new Tv("test","TV simulada","127.0.0.1");remote.connect(tv);long end=System.currentTimeMillis()+10000;while(!remote.ready&&System.currentTimeMillis()<end)Thread.sleep(30);check(remote.ready,"Pairing failed");check(pointer.await(3,TimeUnit.SECONDS),"Pointer connection failed");Thread.sleep(100);remote.command("audio/volumeUp");remote.request("ssap://com.webos.service.ime/insertText",Remote.obj("text","Olá Paulinho","replace",0),"texto");remote.button("UP");remote.move(2,3);remote.click();for(CountDownLatch l:new CountDownLatch[]{volume,text,button,move,click})check(l.await(3,TimeUnit.SECONDS),"Command missing");Tv restored=new Tv(tv.json());check(restored.key.equals("saved-key"),"Persistence failed");remote.connect(restored);check(paired.await(10,TimeUnit.SECONDS),"Reconnection failed");check(registrations.get()==2,"Missing registrations");System.out.println("PASS: pairing, saved-key reconnect, volume, text, arrow, move and click");}finally{remote.disconnect();server.stop(1000);}
+ }
+}

@@ -1,0 +1,17 @@
+plugins { id("com.android.application") }
+android {
+    namespace = "com.paulinho.lg"
+    compileSdk = 34
+    defaultConfig {
+        applicationId = "com.paulinho.lg"
+        minSdk = 23
+        targetSdk = 34
+        versionCode = 1
+        versionName = "1.0"
+    }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+}
+dependencies { implementation(fileTree("libs") { include("*.jar") }) }
